@@ -103,7 +103,7 @@ class SubsUnacsProvider(Provider):
             'imdbcheck': 1}
 
         if isEpisode:
-            params['m'] = "%s %02d %02d" % (sanitize(video.series), video.season, video.episode)
+            params['m'] = "%s %02dx%02d" % (video.series, video.season, video.episode)
         else:
             params['y'] = video.year
             params['m'] = (video.title)
@@ -117,6 +117,16 @@ class SubsUnacsProvider(Provider):
             })
 
         response.raise_for_status()
+
+        # re-try with sanitized series name
+        if response.status_code != 200 and isEpisode:
+            params['m'] = "%s %02dx%02d" % (sanitize(video.series), video.season, video.episode)
+
+            logger.info('Searching subtitle (sanitized) %r', params)
+            response = self.session.post('https://subsunacs.net/search.php', params=params, allow_redirects=False, timeout=10, headers={
+                'Referer': 'https://subsunacs.net/index.php',
+                })
+            response.raise_for_status()
 
         if response.status_code != 200:
             logger.debug('No subtitles found')

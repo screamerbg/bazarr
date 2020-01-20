@@ -99,7 +99,7 @@ class SubsSabBzProvider(Provider):
         }
 
         if isEpisode:
-            params['movie'] = "%s %02d %02d" % (sanitize(video.series), video.season, video.episode)
+            params['movie'] = "%s %02dx%02d" % (video.series, video.season, video.episode)
         else:
             params['yr'] = video.year
             params['movie'] = (video.title)
@@ -113,6 +113,15 @@ class SubsSabBzProvider(Provider):
             })
 
         response.raise_for_status()
+
+        if response.status_code != 200 and isEpisode:
+            params['movie'] = "%s %02dx%02d" % (sanitize(video.series), video.season, video.episode)
+
+            logger.info('Searching subtitle %r', params)
+            response = self.session.post('http://subs.sab.bz/index.php?', params=params, allow_redirects=False, timeout=10, headers={
+                'Referer': 'http://subs.sab.bz/',
+                })
+            response.raise_for_status()
 
         if response.status_code != 200:
             logger.debug('No subtitles found')
