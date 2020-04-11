@@ -12,7 +12,7 @@ from requests import Session
 from guessit import guessit
 from subliminal_patch.providers import Provider
 from subliminal_patch.subtitle import Subtitle
-from subliminal_patch.utils import sanitize, fix_inconsistent_naming
+from subliminal_patch.utils import sanitize
 from subliminal.exceptions import ProviderError
 from subliminal.utils import sanitize_release_group
 from subliminal.subtitle import guess_matches
@@ -23,26 +23,12 @@ from .utils import FIRST_THOUSAND_OR_SO_USER_AGENTS as AGENT_LIST
 
 logger = logging.getLogger(__name__)
 
-def fix_tv_naming(title):
-    """Fix TV show titles with inconsistent naming using dictionary, but do not sanitize them.
-
-    :param str title: original title.
-    :return: new title.
-    :rtype: str
-
-    """
-    return fix_inconsistent_naming(title, {"Marvel's Daredevil": "Daredevil",
-                                           "Marvel's Luke Cage": "Luke Cage",
-                                           "Marvel's Iron Fist": "Iron Fist",
-                                           "DC's Legends of Tomorrow": "Legends of Tomorrow"
-                                           }, True)
-
-class SubsUnacsSubtitle(Subtitle):
-    """SubsUnacs Subtitle."""
-    provider_name = 'subsunacs'
+class YavkaNetSubtitle(Subtitle):
+    """YavkaNet Subtitle."""
+    provider_name = 'yavkanet'
 
     def __init__(self, langauge, filename, type, video, link):
-        super(SubsUnacsSubtitle, self).__init__(langauge)
+        super(YavkaNetSubtitle, self).__init__(langauge)
         self.langauge = langauge
         self.filename = filename
         self.page_link = link
@@ -78,10 +64,10 @@ class SubsUnacsSubtitle(Subtitle):
         return matches
 
 
-class SubsUnacsProvider(Provider):
-    """SubsUnacs Provider."""
-    languages = {Language('por', 'BR')} | {Language(l) for l in [
-        'bul', 'eng'
+class YavkaNetProvider(Provider):
+    """YavkaNet Provider."""
+    languages = {Language(l) for l in [
+        'bul', 'eng', 'rus', 'spa', 'ita'
     ]}
 
     def initialize(self):
@@ -101,32 +87,32 @@ class SubsUnacsProvider(Provider):
     def query(self, language, video):
         subtitles = []
         isEpisode = isinstance(video, Episode)
-
         params = {
-            'm': '',
-            'l': 0,
-            'c': '',
+            's': '',
             'y': '',
-            'action': "   Търси   ",
-            'a': '',
-            'd': '',
             'u': '',
-            'g': '',
-            't': '',
-            'imdbcheck': 1}
+            'l': 'BG',
+            'i': ''
+        }
 
         if isEpisode:
-            params['m'] = "%s %02d %02d" % (sanitize(fix_tv_naming(video.series), {'\''}), video.season, video.episode)
+            params['s'] = "%s s%02de%02d" % (sanitize(video.series, {'\''}), video.season, video.episode)
         else:
             params['y'] = video.year
-            params['m'] = sanitize(video.title, {'\''})
+            params['s'] = sanitize(video.title, {'\''})
 
-        if language == 'en' or language == 'eng':
-            params['l'] = 1
+        if   language == 'en' or language == 'eng':
+            params['l'] = 'EN'
+        elif language == 'ru' or language == 'rus':
+            params['l'] = 'RU'
+        elif language == 'es' or language == 'spa':
+            params['l'] = 'ES'
+        elif language == 'it' or language == 'ita':
+            params['l'] = 'IT'
 
         logger.info('Searching subtitle %r', params)
-        response = self.session.post('https://subsunacs.net/search.php', params=params, allow_redirects=False, timeout=10, headers={
-            'Referer': 'https://subsunacs.net/index.php',
+        response = self.session.get('http://yavka.net/subtitles.php', params=params, allow_redirects=False, timeout=10, headers={
+            'Referer': 'http://yavka.net/',
             })
 
         response.raise_for_status()
@@ -136,24 +122,22 @@ class SubsUnacsProvider(Provider):
             return subtitles
 
         soup = BeautifulSoup(response.content, 'lxml')
-        rows = soup.findAll('tr', onmouseover=True)
-
+        rows = soup.findAll('tr', {'class': 'info'})
+        
         # Search on first 20 rows only
         for row in rows[:20]:
-            a_element_wrapper = row.find('td', {'class': 'tdMovie'})
-            if a_element_wrapper:
-                element = a_element_wrapper.find('a', {'class': 'tooltip'})
-                if element:
-                    link = element.get('href')
-                    element = row.find('a', href = re.compile(r'.*/search\.php\?t=1\&memid=.*'))
-                    uploader = element.get_text() if element else None
-                    logger.info('Found subtitle link %r', link)
-                    sub = self.download_archive_and_add_subtitle_files('https://subsunacs.net' + link, language, video)
-                    for s in sub: 
-                        s.uploader = uploader
-                    subtitles = subtitles + sub
+            element = row.find('a', {'class': 'selector'})
+            if element:
+                link = element.get('href')
+                element = row.find('a', {'class': 'click'})
+                uploader = element.get_text() if element else None
+                logger.info('Found subtitle link %r', link)
+                sub = self.download_archive_and_add_subtitle_files('http://yavka.net/' + link, language, video)
+                for s in sub: 
+                    s.uploader = uploader
+                subtitles = subtitles + sub
         return subtitles
-
+        
     def list_subtitles(self, video, languages):
         return [s for l in languages for s in self.query(l, video)]
 
@@ -171,22 +155,17 @@ class SubsUnacsProvider(Provider):
         subtitles = []
         type = 'episode' if isinstance(video, Episode) else 'movie'
         for file_name in archiveStream.namelist():
-            if file_name.lower().endswith(('.srt', '.sub', '.txt')):
-                file_is_txt = True if file_name.lower().endswith('.txt') else False
-                if file_is_txt and re.search(r'subsunacs\.net|танете част|прочети|^read ?me|procheti', file_name, re.I): 
-                    logger.info('Ignore readme txt file %r', file_name)
-                    continue
+            if file_name.lower().endswith(('.srt', '.sub')):
                 logger.info('Found subtitle file %r', file_name)
-                subtitle = SubsUnacsSubtitle(language, file_name, type, video, link)
+                subtitle = YavkaNetSubtitle(language, file_name, type, video, link)
                 subtitle.content = archiveStream.read(file_name)
-                if file_is_txt == False or subtitle.is_valid():
-                    subtitles.append(subtitle)
+                subtitles.append(subtitle)
         return subtitles
 
     def download_archive_and_add_subtitle_files(self, link, language, video ):
         logger.info('Downloading subtitle %r', link)
         request = self.session.get(link, headers={
-            'Referer': 'https://subsunacs.net/search.php'
+            'Referer': 'http://yavka.net/subtitles.php'
             })
         request.raise_for_status()
 
@@ -197,3 +176,4 @@ class SubsUnacsProvider(Provider):
             return self.process_archive_subtitle_files( ZipFile(archive_stream), language, video, link )
         else:
             raise ValueError('Not a valid archive')
+        
