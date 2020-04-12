@@ -1,0 +1,1 @@
+WinPython\python-2.7.13\python.exe \Bazarr\bazarr.py --config \ProgramData\Bazarr --no-update
