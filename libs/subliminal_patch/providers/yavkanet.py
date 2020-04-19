@@ -189,5 +189,5 @@ class YavkaNetProvider(Provider):
         elif is_zipfile(archive_stream):
             return self.process_archive_subtitle_files(ZipFile(archive_stream), language, video, link, fps)
         else:
-            raise ValueError('Not a valid archive')
-        
+            logger.error('Ignore unsupported archive %r', request.headers)
+            return []

@@ -202,7 +202,7 @@ class SubsUnacsProvider(Provider):
                     subtitles.append(subtitle)
         return subtitles
 
-    def download_archive_and_add_subtitle_files(self, link, language, video, fps ):
+    def download_archive_and_add_subtitle_files(self, link, language, video, fps):
         logger.info('Downloading subtitle %r', link)
         request = self.session.get(link, headers={
             'Referer': 'https://subsunacs.net/search.php'
@@ -211,8 +211,9 @@ class SubsUnacsProvider(Provider):
 
         archive_stream = io.BytesIO(request.content)
         if is_rarfile(archive_stream):
-            return self.process_archive_subtitle_files( RarFile(archive_stream), language, video, link, fps )
+            return self.process_archive_subtitle_files(RarFile(archive_stream), language, video, link, fps)
         elif is_zipfile(archive_stream):
-            return self.process_archive_subtitle_files( ZipFile(archive_stream), language, video, link, fps )
+            return self.process_archive_subtitle_files(ZipFile(archive_stream), language, video, link, fps)
         else:
-            raise ValueError('Not a valid archive')
+            logger.error('Ignore unsupported archive %r', request.headers)
+            return []
